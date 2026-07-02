@@ -17,7 +17,7 @@ class LLMConfig:
 @dataclass
 class Config:
     hotkey: str = "ctrl+shift+space"
-    command_hotkey: str = "ctrl+alt+c"
+    command_hotkey: str = "ctrl+shift+c"
     language_toggle_hotkey: str = "ctrl+alt+l"
     language: str = "auto"
     command_language: str = "he"
@@ -33,6 +33,7 @@ class Config:
     paste_delay_ms: int = 150
     input_device: int | None = None
     overlay: bool = True
+    theme: str = "light"
     live_typing: bool = True
     restore_clipboard: bool = False
     silence_seconds: float = 2.0

@@ -1,7 +1,8 @@
 # FreeWhisper settings
 hotkey: ctrl+shift+space        # tap once to start recording (auto-stops on silence)
                                 # (ctrl+alt+space is taken by Claude Desktop)
-command_hotkey: ctrl+alt+c      # speak an instruction about the selected text (⚡)
+command_hotkey: ctrl+shift+c    # speak an instruction about the selected text (⚡)
+                                # (note: also opens DevTools inspect in browsers)
 language_toggle_hotkey: ctrl+alt+l
 language: auto                  # auto | he | en — auto detects per dictation
 command_language: he            # ⚡ commands are short — auto-detect hallucinates on them,
@@ -37,6 +38,7 @@ restore_clipboard: false        # false = the result stays in your clipboard (re
                                 # paste the old content instead — the "echo" bug)
 input_device: null              # mic index from `--check`; null = system default
 overlay: true                   # floating always-on-top widget (record / HE-EN / quit)
+theme: light                    # light | atelier | glass | neon — cycle live from the tray
 live_typing: true               # stream the draft into the target field while you speak,
                                 # then replace it with the clean version (don't move the
                                 # cursor mid-dictation!)
