@@ -37,7 +37,6 @@ tap Ctrl+Shift+Space (or click the mic)
 | Start dictating | **Ctrl+Shift+Space** or click the 🎤 mic on the widget |
 | Stop | just stop talking (~2s), or tap the hotkey again |
 | Command mode (⚡) | select text anywhere → **Ctrl+Shift+C** → speak an instruction ("translate to English", "תקצר את זה") — the result replaces/pastes |
-| Theme | `theme:` in config (**light** / atelier / glass / neon) or cycle live from the tray menu |
 | Language | **Ctrl+Alt+L** or the pill cycles **AUTO → HE → EN** (auto detects per dictation) |
 | Copy last result | 📋 on the widget (turns ✔) |
 | History | 🕘 opens the last dictations — click a row to copy it |
