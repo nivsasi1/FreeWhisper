@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import config as config_mod
 from .cleaner import Cleaner
-from .injector import copy_text, grab_selection, paste_text
+from .injector import copy_text, grab_selection, paste_text, send_backspaces, type_text
 from .recorder import Recorder, rms
 from .transcriber import Transcriber
 
@@ -36,6 +36,8 @@ class App:
         self.mode = "dictate"        # dictate | command
         self.selection = ""          # grabbed text for command mode
         self.live_text = ""          # partial transcript for the overlay
+        self.typed = ""              # what live-typing has inserted into the target field
+        self.type_lock = threading.Lock()
         self.history = deque(maxlen=20)
         self._overlay = None
         self._tray = None
@@ -47,6 +49,7 @@ class App:
             return
         self.mode = mode
         self.live_text = ""
+        self.typed = ""
         if mode == "command":
             # grab the selection BEFORE recording, while the target app has focus
             self.selection = grab_selection(self.cfg.paste_delay_ms)
@@ -110,9 +113,30 @@ class App:
                 text = self.transcriber.partial(audio, self.language)
                 if self.recorder.recording and text:
                     self.live_text = text
+                    if self.cfg.live_typing and self.mode == "dictate":
+                        self._live_type(text)
             except Exception as e:
                 print(f"[stt] partial failed: {e}")
                 return
+
+    def _live_type(self, new: str):
+        """Stream the partial into the target field: erase only the changed tail."""
+        with self.type_lock:
+            if not self.recorder.recording:
+                return
+            old = self.typed
+            p = 0
+            while p < len(old) and p < len(new) and old[p] == new[p]:
+                p += 1
+            send_backspaces(len(old) - p)
+            type_text(new[p:])
+            self.typed = new
+
+    def _erase_live_typed(self):
+        with self.type_lock:
+            n, self.typed = len(self.typed), ""
+            if n:
+                send_backspaces(n)
 
     def _process(self, audio, mode):
         with self.busy:
@@ -121,6 +145,7 @@ class App:
                 text = self.transcriber.transcribe(audio, self.language)
                 if not text:
                     print("[stt] (nothing recognized — was the mic level near 0?)")
+                    self._erase_live_typed()
                     return
                 print(f"[stt] {text}")
                 self.live_text = text
@@ -134,9 +159,15 @@ class App:
                     result = self.cleaner.clean(text)
                     if result != text:
                         print(f"[llm] {result}")
+                # replace the live-typed draft with the final clean version
+                self._erase_live_typed()
+                if "[CANCEL]" in result:
+                    print("[llm] cancelled by spoken command — nothing pasted")
+                    return
                 self.history.appendleft(result)
                 paste_text(result, self.cfg.paste_delay_ms)
             except Exception:
+                self._erase_live_typed()
                 traceback.print_exc()
             finally:
                 self.state = "idle"

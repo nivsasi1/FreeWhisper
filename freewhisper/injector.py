@@ -29,6 +29,19 @@ def copy_text(text: str):
     pyperclip.copy(text)
 
 
+def type_text(text: str):
+    """Type unicode text into the focused field (used for live partials)."""
+    if text:
+        keyboard.write(text)
+
+
+def send_backspaces(n: int):
+    for i in range(n):
+        keyboard.send("backspace")
+        if i % 40 == 39:
+            time.sleep(0.02)  # let slow apps keep up on long erases
+
+
 def grab_selection(delay_ms: int = 150) -> str:
     """Copy whatever is selected in the focused app and return it.
 

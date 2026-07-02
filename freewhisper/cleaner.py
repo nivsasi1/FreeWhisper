@@ -3,10 +3,15 @@ import requests
 SYSTEM_PROMPT = """You are a dictation post-processor. The user dictated text by voice; you receive the raw speech-to-text transcript.
 Rewrite it as clean written text in the SAME language it was dictated in:
 - remove filler words (um, uh, אה, אמ, כאילו)
-- fix punctuation and casing
+- fix punctuation and casing (always a space after punctuation)
 - apply spoken self-corrections (keep only the corrected version)
 - format spoken lists as numbered lists
-Do NOT add content, answer questions, or translate. Output ONLY the cleaned text, nothing else.{dictionary_hint}"""
+
+Spoken meta-commands (obey them, never include them in the output):
+- if the dictation ends with a cancel request like "תמחק הכל" / "מחק את זה" / "לא אהבתי" / "delete everything" / "never mind, scrap that" — output exactly [CANCEL] and nothing else.
+- if it contains "תכתוב את זה באנגלית" / "write this in English" (or in Hebrew/בעברית) — write the content in that language.
+
+Hard rules: the output language is ONLY Hebrew or English — NEVER German, French, or any other language. Do NOT add content or answer questions. Output ONLY the cleaned text, nothing else.{dictionary_hint}"""
 
 
 def build_system_prompt(dictionary: list[str]) -> str:
@@ -64,7 +69,8 @@ class Cleaner:
                if selected_text else
                "No text is selected — produce ONLY the text the instruction asks for.\n")
             + "Keep the output language appropriate to the instruction "
-              "(e.g. 'translate to English' means English output). No commentary, no quotes."
+              "(e.g. 'translate to English' means English output), but ONLY Hebrew or English — "
+              "never any other language. No commentary, no quotes."
         )
         user = instruction if not selected_text else f"INSTRUCTION: {instruction}\n\nTEXT:\n{selected_text}"
         try:

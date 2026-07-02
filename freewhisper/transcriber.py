@@ -40,7 +40,7 @@ class Transcriber:
             print("[stt] model ready")
         return self._models[key]
 
-    def _run(self, model, audio, language, beam_size) -> tuple[str, str]:
+    def _run(self, model, audio, language, beam_size):
         prompt = ", ".join(self.cfg.dictionary) or None
         segments, info = model.transcribe(
             audio,
@@ -50,16 +50,28 @@ class Transcriber:
             initial_prompt=prompt,
         )
         text = " ".join(s.text.strip() for s in segments).strip()
-        return text, info.language
+        return text, info
+
+    @staticmethod
+    def _best_he_or_en(info) -> str:
+        """Language lock: choose he or en only, whichever Whisper scored higher."""
+        probs = dict(getattr(info, "all_language_probs", None) or [])
+        if probs:
+            return "he" if probs.get("he", 0.0) >= probs.get("en", 0.0) else "en"
+        return "he" if info.language == "he" else "en"
 
     def transcribe(self, audio: np.ndarray, language: str) -> str:
         if audio.size < 1600:  # <0.1s — hotkey tap, not speech
             return ""
         if language == "auto":
-            text, detected = self._run(self._get_model("en"), audio, None, self.cfg.beam_size)
-            print(f"[stt] detected language: {detected}")
-            if detected == "he":
+            text, info = self._run(self._get_model("en"), audio, None, self.cfg.beam_size)
+            lang = self._best_he_or_en(info)
+            print(f"[stt] detected: {info.language} → using {lang}")
+            if lang == "he":
                 text, _ = self._run(self._get_model("he"), audio, "he", self.cfg.beam_size)
+            elif info.language != "en":
+                # detector wandered off (e.g. German) — force a clean English pass
+                text, _ = self._run(self._get_model("en"), audio, "en", self.cfg.beam_size)
             return text
         text, _ = self._run(self._get_model(language), audio, language, self.cfg.beam_size)
         return text

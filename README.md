@@ -46,6 +46,15 @@ tap Ctrl+Shift+Space (or click the mic)
 While you talk the widget expands: waveform bars dance with your voice and a **live transcript**
 streams underneath. Colors: 🟣 idle · 🔴 dictating · 🔵 command · 🟠 processing.
 
+**Live typing** (`live_typing: true`): the draft is typed straight into the field you're
+dictating into as you speak, then erased and replaced with the clean LLM version at the end —
+just don't move the cursor mid-dictation.
+
+**Spoken commands inside a dictation**: end with "תמחק הכל" / "delete everything, never mind"
+to cancel (nothing is pasted); say "תכתוב את זה באנגלית" / "write this in English" to switch
+the output language. Output is locked to Hebrew/English only — both at the Whisper
+language-detection level and in the LLM prompt.
+
 The widget window is set `WS_EX_NOACTIVATE`, so clicking its buttons never steals focus —
 your cursor stays in the text field and the paste lands there.
 
