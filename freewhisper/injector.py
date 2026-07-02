@@ -50,8 +50,13 @@ def send_backspaces(n: int):
 def grab_selection(delay_ms: int = 150) -> str:
     """Copy whatever is selected in the focused app and return it.
 
-    Uses the Ctrl+C trick; restores the previous clipboard. Returns "" when
-    nothing is selected (clipboard unchanged after Ctrl+C).
+    Uses the Ctrl+C trick. Two timing traps handled here:
+    - if this was triggered by a hotkey, the user's physical Ctrl/Alt/Shift are
+      still held — sending Ctrl+C then reaches the app as Ctrl+Alt+C. Wait for
+      release first.
+    - slow apps write the clipboard late — poll for the change instead of a
+      fixed sleep.
+    Returns "" when nothing is selected.
     """
     try:
         previous = pyperclip.paste()
@@ -59,12 +64,22 @@ def grab_selection(delay_ms: int = 150) -> str:
         previous = ""
     marker = "\x00__freewhisper__\x00"
     pyperclip.copy(marker)
-    time.sleep(delay_ms / 1000)
+
+    deadline = time.time() + 1.0
+    while time.time() < deadline and any(
+            keyboard.is_pressed(k) for k in ("ctrl", "alt", "shift")):
+        time.sleep(0.03)
     keyboard.send("ctrl+c")
-    time.sleep(delay_ms / 1000)
-    try:
-        grabbed = pyperclip.paste()
-    except pyperclip.PyperclipException:
-        grabbed = marker
+
+    grabbed = marker
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        time.sleep(0.05)
+        try:
+            grabbed = pyperclip.paste()
+        except pyperclip.PyperclipException:
+            continue
+        if grabbed != marker:
+            break
     pyperclip.copy(previous)
     return "" if grabbed == marker else grabbed
