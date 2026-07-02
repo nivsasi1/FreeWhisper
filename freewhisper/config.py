@@ -33,7 +33,6 @@ class Config:
     paste_delay_ms: int = 150
     input_device: int | None = None
     overlay: bool = True
-    design: str = "waves"
     live_typing: bool = True
     restore_clipboard: bool = False
     silence_seconds: float = 2.0

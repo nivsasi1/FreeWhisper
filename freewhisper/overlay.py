@@ -1,13 +1,9 @@
-"""Always-on-top floating widget — five interchangeable DESIGNS, atelier palette.
+"""Always-on-top floating widget — atelier dark-ink pill with flowing waves.
 
-- waves      pill panel, three rolling sine curves (Siri-style) + mic pulse ring
-- equalizer  pill panel, mirrored studio bars with slowly-falling peak caps
-- particles  pill panel, sparks fly out of the mic side as you speak
-- orb        no box: a breathing glowing orb, chip buttons + transcript below
-- capsule    a slim, almost invisible bar that glows with your voice;
-             buttons appear on hover
-
-Switch live from the tray menu (Design: cycle) or set `design:` in config.yaml.
+Recording visual: three overlapping sine curves that physically roll across
+the panel (Siri-style), amplitude driven by your voice, plus a ring that
+pulses out of the mic button. The live transcript sits in its own inset box
+under the controls.
 
 Crucial Windows detail: the window gets WS_EX_NOACTIVATE, so clicking its
 buttons NEVER steals focus from the text field you're dictating into.
@@ -17,25 +13,23 @@ Runs in the main thread; worker-thread state is read via a 60ms poll.
 import collections
 import ctypes
 import math
-import random
 
 TRANS = "#010203"
 INK = "#2b2440"
+INSET = "#221c33"          # live-transcript box, a shade darker than the panel
 EDGE = "#5b2d8e"
+EDGE_DIM = "#453a63"
 GRIP = "#8a7fa8"
-LIVE_FG = "#cfc7e6"
+LIVE_FG = "#d6cfea"
 X_FG = "#c9899a"
 PILL_BG = "#3a3153"
 MIC_COLORS = {"idle": "#5b2d8e", "rec": "#d64545", "busy": "#e8a33d", "cmd": "#4a7fd0"}
-FX_MAIN = {"rec": "#e46a6a", "cmd": "#7aa5e8", "busy": "#e8a33d", "idle": GRIP}
+WAVE_MAIN = {"rec": "#e46a6a", "cmd": "#7aa5e8", "busy": "#e8a33d", "idle": GRIP}
 
-DESIGNS = ["waves", "equalizer", "particles", "orb", "capsule"]
-
-# pill-panel geometry (waves / equalizer / particles)
-W_REC, H_REC = 380, 96
+W_REC, H_REC = 380, 108
 W_IDLE, H_IDLE = 252, 56
 PILL_R = 26
-FX_X0 = 252
+WAVE_X0 = 252
 
 
 def _rrect_pts(x1, y1, x2, y2, r):
@@ -62,8 +56,8 @@ def _no_activate(tk_window):
 
 class Overlay:
     def __init__(self, get_state, get_language, get_level, get_live_text,
-                 get_design, on_record, on_command, on_cycle_language,
-                 on_copy_last, get_history, on_quit):
+                 on_record, on_command, on_cycle_language, on_copy_last,
+                 get_history, on_quit):
         import tkinter as tk
         self.tk = tk
 
@@ -71,14 +65,8 @@ class Overlay:
         self.get_language = get_language
         self.get_level = get_level
         self.get_live_text = get_live_text
-        self.get_design = get_design
         self.get_history = get_history
-        self.on_record = on_record
         self.on_copy_last = on_copy_last
-        self.on_quit_cb = on_quit
-
-        self.design = None
-        self.W, self.H = W_REC, H_REC
         self.width = float(W_IDLE)
         self.height = float(H_IDLE)
         self._amp = 0.0
@@ -86,9 +74,6 @@ class Overlay:
         self._pulse = 0.0
         self._flash = 0
         self._hist_win = None
-        self._parts = []           # particles design
-        self._peaks = []           # equalizer design
-        self._hover = False        # capsule design
 
         root = tk.Tk()
         self.root = root
@@ -97,160 +82,79 @@ class Overlay:
         root.attributes("-topmost", True)
         root.attributes("-transparentcolor", TRANS)
         root.attributes("-alpha", 0.97)
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"{W_REC}x{H_REC}+{sw - W_REC - 40}+{sh - H_REC - 120}")
 
-        self.canvas = tk.Canvas(root, bg=TRANS, highlightthickness=0)
-        self.canvas.pack()
+        c = tk.Canvas(root, width=W_REC, height=H_REC, bg=TRANS, highlightthickness=0)
+        c.pack()
+        self.canvas = c
 
-        c = self.canvas
+        self.bg = c.create_polygon(_rrect_pts(1, 1, W_IDLE, H_IDLE - 1, PILL_R),
+                                   smooth=True, fill=INK, outline=EDGE, width=2)
+        y = H_IDLE // 2
+        self.grip = c.create_text(16, y, text="⠿", fill=GRIP, font=("Segoe UI", 12))
+
+        mx = 48
+        self.mic_center = (mx, y)
+        self.mic_circle = c.create_oval(mx - 15, y - 15, mx + 15, y + 15,
+                                        fill=MIC_COLORS["idle"], outline="", tags="mic")
+        # clean minimal mic: capsule head, cradle arc, stem, base
+        c.create_oval(mx - 4, y - 10, mx + 4, y + 1, fill="white", outline="", tags="mic")
+        c.create_arc(mx - 8, y - 8, mx + 8, y + 6, start=180, extent=180,
+                     style="arc", outline="white", width=2, tags="mic")
+        c.create_line(mx, y + 6, mx, y + 10, fill="white", width=2,
+                      capstyle="round", tags="mic")
+        c.create_line(mx - 4, y + 10, mx + 4, y + 10, fill="white", width=2,
+                      capstyle="round", tags="mic")
+
+        c.create_text(78, y, text="⚡", fill="#e8c96a", font=("Segoe UI", 13), tags="cmd")
+        c.create_polygon(_rrect_pts(94, 14, 148, H_IDLE - 14, 12), smooth=True,
+                         fill=PILL_BG, outline="", tags="lang")
+        self.lang_text = c.create_text(121, y, text="", fill="white",
+                                       font=("Segoe UI", 10, "bold"), tags="lang")
+        self.copy_btn = c.create_text(166, y, text="📋", font=("Segoe UI", 12), tags="copy")
+        c.create_text(196, y, text="🕘", font=("Segoe UI", 12), tags="hist")
+        c.create_text(226, y, text="✕", fill=X_FG, font=("Segoe UI", 12, "bold"), tags="x")
+
+        # live transcript inset box (visible only while expanded and speaking)
+        self.live_box = c.create_polygon(
+            _rrect_pts(14, 62, W_REC - 14, H_REC - 8, 12), smooth=True,
+            fill=INSET, outline=EDGE_DIM, width=1, state="hidden")
+        self.live = c.create_text(W_REC - 26, (62 + H_REC - 8) / 2, text="",
+                                  fill=LIVE_FG, anchor="e", font=("Segoe UI", 10),
+                                  width=W_REC - 52, state="hidden")
+
         c.tag_bind("mic", "<Button-1>", lambda e: on_record())
         c.tag_bind("cmd", "<Button-1>", lambda e: on_command())
         c.tag_bind("lang", "<Button-1>", lambda e: on_cycle_language())
         c.tag_bind("copy", "<Button-1>", lambda e: self._copy_clicked())
         c.tag_bind("hist", "<Button-1>", lambda e: self._toggle_history())
         c.tag_bind("x", "<Button-1>", lambda e: on_quit())
-        for t in ("mic", "cmd", "lang", "copy", "hist", "x", "grab"):
+        for t in ("mic", "cmd", "lang", "copy", "hist", "x"):
             c.tag_bind(t, "<Enter>", lambda e: c.config(cursor="hand2"))
             c.tag_bind(t, "<Leave>", lambda e: c.config(cursor=""))
-        # drag surfaces; "grab" items also toggle recording on a clean click
-        for t in ("drag", "grab"):
-            c.tag_bind(t, "<ButtonPress-1>", self._press)
-            c.tag_bind(t, "<B1-Motion>", self._drag)
-        c.tag_bind("grab", "<ButtonRelease-1>", self._release_grab)
-        c.bind("<Enter>", lambda e: self._set_hover(True))
-        c.bind("<Leave>", lambda e: self._set_hover(False))
+        for item in (self.bg, self.grip):
+            c.tag_bind(item, "<ButtonPress-1>", self._press)
+            c.tag_bind(item, "<B1-Motion>", self._drag)
 
         self._drag_off = (0, 0)
-        self._moved = False
-        self._build(self.get_design())
         _no_activate(root)
         self._poll()
 
-    # --- layout builders --------------------------------------------------------
-
-    def _build(self, design):
-        design = design if design in DESIGNS else "waves"
-        first = self.design is None
-        self.design = design
-        c = self.canvas
-        c.delete("all")
-        self._parts, self._peaks = [], []
-        self.live_backdrop = None
-
-        keep_x = None if first else self.root.winfo_x()
-        if design in ("waves", "equalizer", "particles"):
-            self.W, self.H = W_REC, H_REC
-            self._build_pill()
-        elif design == "orb":
-            self.W, self.H = 240, 176
-            self._build_orb()
-        else:
-            self.W, self.H = 280, 84
-            self._build_capsule()
-
-        c.config(width=self.W, height=self.H)
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        x = self.root.winfo_x() if keep_x is not None else sw - self.W - 40
-        y = self.root.winfo_y() if keep_x is not None else sh - self.H - 120
-        self.root.geometry(f"{self.W}x{self.H}+{x}+{y}")
-
-    def _build_pill(self):
-        c = self.canvas
-        self.width, self.height = float(W_IDLE), float(H_IDLE)
-        self.bg = c.create_polygon(_rrect_pts(1, 1, W_IDLE, H_IDLE - 1, PILL_R),
-                                   smooth=True, fill=INK, outline=EDGE, width=2,
-                                   tags="drag")
-        y = H_IDLE // 2
-        c.create_text(16, y, text="⠿", fill=GRIP, font=("Segoe UI", 12), tags="drag")
-        mx = 48
-        self.mic_center = (mx, y)
-        self.mic_circle = c.create_oval(mx - 15, y - 15, mx + 15, y + 15,
-                                        fill=MIC_COLORS["idle"], outline="", tags="mic")
-        self._mic_glyph(mx, y)
-        c.create_text(78, y, text="⚡", fill="#e8c96a", font=("Segoe UI", 13), tags="cmd")
-        c.create_polygon(_rrect_pts(94, 14, 148, H_IDLE - 14, 12), smooth=True,
-                         fill=PILL_BG, outline="", tags="lang")
-        self.lang_text = c.create_text(121, y, text="", fill="white",
-                                       font=("Segoe UI", 11, "bold"), tags="lang")
-        self.copy_btn = c.create_text(166, y, text="📋", font=("Segoe UI", 12), tags="copy")
-        c.create_text(196, y, text="🕘", font=("Segoe UI", 12), tags="hist")
-        c.create_text(226, y, text="✕", fill=X_FG, font=("Segoe UI", 12, "bold"), tags="x")
-        self.live = c.create_text(self.W - 22, 74, text="", fill=LIVE_FG, anchor="e",
-                                  font=("Segoe UI", 11), width=self.W - 44)
-
-    def _build_orb(self):
-        c = self.canvas
-        cx = self.W // 2
-        self.mic_center = (cx, 46)
-        self.orb = c.create_oval(cx - 26, 20, cx + 26, 72, fill=MIC_COLORS["idle"],
-                                 outline=EDGE, width=2, tags="grab")
-        self._mic_glyph(cx, 46, tags="grab")
-        xs = [cx - 68, cx - 34, cx, cx + 34, cx + 68]
-        self._chip(xs[0], 100, "cmd", "⚡", "#e8c96a")
-        self.lang_text = self._chip(xs[1], 100, "lang", "HE", "white", small=True)
-        self.copy_btn = self._chip(xs[2], 100, "copy", "📋")
-        self._chip(xs[3], 100, "hist", "🕘")
-        self._chip(xs[4], 100, "x", "✕", X_FG)
-        self.live_backdrop = c.create_polygon(_rrect_pts(8, 122, self.W - 8, 170, 14),
-                                              smooth=True, fill=INK, outline=EDGE,
-                                              width=1, state="hidden")
-        self.live = c.create_text(cx, 146, text="", fill=LIVE_FG, anchor="center",
-                                  font=("Segoe UI", 10), width=self.W - 32)
-
-    def _build_capsule(self):
-        c = self.canvas
-        cx = self.W // 2
-        self.bar = c.create_polygon(_rrect_pts(20, 62, self.W - 20, 78, 8), smooth=True,
-                                    fill=INK, outline=EDGE, width=1.5, tags="grab")
-        self.mic_center = (cx, 70)
-        xs = [cx - 68, cx - 34, cx, cx + 34, cx + 68]
-        self._chip(xs[0], 40, "cmd", "⚡", "#e8c96a", hideable=True)
-        self.lang_text = self._chip(xs[1], 40, "lang", "HE", "white", small=True, hideable=True)
-        self.copy_btn = self._chip(xs[2], 40, "copy", "📋", hideable=True)
-        self._chip(xs[3], 40, "hist", "🕘", hideable=True)
-        self._chip(xs[4], 40, "x", "✕", X_FG, hideable=True)
-        self.live_backdrop = c.create_polygon(_rrect_pts(8, 2, self.W - 8, 26, 10),
-                                              smooth=True, fill=INK, outline=EDGE,
-                                              width=1, state="hidden")
-        self.live = c.create_text(cx, 14, text="", fill=LIVE_FG, anchor="center",
-                                  font=("Segoe UI", 9), width=self.W - 32)
-
-    def _mic_glyph(self, mx, y, tags="mic"):
-        c = self.canvas
-        c.create_oval(mx - 5, y - 10, mx + 5, y + 2, fill="white", outline="", tags=tags)
-        c.create_rectangle(mx - 2, y + 2, mx + 2, y + 7, fill="white", outline="", tags=tags)
-        c.create_line(mx - 7, y + 8, mx + 7, y + 8, fill="white", width=2, tags=tags)
-
-    def _chip(self, x, y, tag, label, color="white", small=False, hideable=False):
-        c = self.canvas
-        tags = (tag, "chip") if hideable else (tag,)
-        c.create_oval(x - 14, y - 14, x + 14, y + 14, fill=INK, outline=EDGE,
-                      width=1.5, tags=tags)
-        font = ("Segoe UI", 9, "bold") if small else ("Segoe UI", 11)
-        return c.create_text(x, y, text=label, fill=color, font=font, tags=tags)
-
-    # --- interactions -------------------------------------------------------------
+    # --- interactions ---------------------------------------------------------
 
     def _press(self, e):
         self._drag_off = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
-        self._moved = False
 
     def _drag(self, e):
         dx, dy = self._drag_off
         self.root.geometry(f"+{e.x_root - dx}+{e.y_root - dy}")
-        self._moved = True
         if self._hist_win is not None:
             self._place_history()
 
-    def _release_grab(self, e):
-        if not self._moved:
-            self.on_record()
-
-    def _set_hover(self, on):
-        self._hover = on
-
     def _copy_clicked(self):
         if self.on_copy_last():
-            self._flash = 8
+            self._flash = 8  # brief ✔ = copied
 
     def _toggle_history(self):
         if self._hist_win is not None:
@@ -289,7 +193,7 @@ class Overlay:
     def _place_history(self):
         win = self._hist_win
         win.update_idletasks()
-        x = self.root.winfo_x() + self.W - win.winfo_reqwidth()
+        x = self.root.winfo_x() + W_REC - win.winfo_reqwidth()
         y = self.root.winfo_y() - win.winfo_reqheight() - 8
         win.geometry(f"+{x}+{max(0, y)}")
 
@@ -306,16 +210,17 @@ class Overlay:
         if alpha < 0.97:
             win.after(20, lambda: self._fade_in(win, alpha))
 
-    # --- per-design dynamic layers (tag "fx", redrawn every frame) ---------------
+    # --- render loop ----------------------------------------------------------
 
-    def _fx_waves(self, state):
+    def _draw_waves(self, state):
+        """Three rolling sine curves, edge-tapered — a wave that looks like a wave."""
         c = self.canvas
-        x0, x1 = FX_X0, self.width - 16
+        x0, x1 = WAVE_X0, self.width - 16
         span = x1 - x0
         if span < 40:
             return
         cy = H_IDLE / 2
-        main = FX_MAIN.get(state, FX_MAIN["idle"])
+        main = WAVE_MAIN.get(state, WAVE_MAIN["idle"])
         base = 2.5 + self._amp * 15
         for amp_f, cycles, speed, color in (
                 (1.00, 2.2, 1.6, main),
@@ -331,62 +236,10 @@ class Overlay:
                 x += step
             if len(pts) >= 8:
                 c.create_line(*pts, fill=color, width=2.4, smooth=True,
-                              capstyle="round", tags="fx")
-        self._fx_pulse(state)
+                              capstyle="round", tags="wave")
 
-    def _fx_equalizer(self, state):
-        c = self.canvas
-        x0, x1 = FX_X0 + 6, self.width - 20
-        if x1 - x0 < 40:
-            return
-        cy = H_IDLE / 2
-        main = FX_MAIN.get(state, FX_MAIN["idle"])
-        n = 13
-        if len(self._peaks) != n:
-            self._peaks = [3.0] * n
-        gap = (x1 - x0) / n
-        for i in range(n):
-            wob = 0.5 + 0.5 * math.sin(self._t * 1.35 + i * 1.7) \
-                * math.cos(self._t * 0.9 + i * 0.6)
-            h = 2.5 + self._amp * wob * 17
-            self._peaks[i] = max(self._peaks[i] - 0.55, h)
-            x = x0 + gap * i + gap / 2
-            c.create_line(x, cy - h, x, cy + h, fill=main, width=4,
-                          capstyle="round", tags="fx")
-            p = self._peaks[i] + 3
-            cap = _blend(main, INK, 0.35)
-            c.create_line(x - 2, cy - p, x + 2, cy - p, fill=cap, width=2, tags="fx")
-            c.create_line(x - 2, cy + p, x + 2, cy + p, fill=cap, width=2, tags="fx")
-        self._fx_pulse(state)
-
-    def _fx_particles(self, state):
-        c = self.canvas
-        cy = H_IDLE / 2
-        main = FX_MAIN.get(state, FX_MAIN["rec"])
-        if state in ("rec", "cmd"):
-            for _ in range(1 + int(self._amp * 5)):
-                self._parts.append({
-                    "x": FX_X0 + 4, "y": cy + random.uniform(-9, 9),
-                    "vx": random.uniform(2.2, 5.5) * (1 + self._amp),
-                    "vy": random.uniform(-1.4, 1.4),
-                    "r": random.uniform(1.5, 3.2), "age": 0,
-                    "life": random.uniform(14, 26)})
-        alive = []
-        for p in self._parts:
-            p["x"] += p["vx"]
-            p["y"] += p["vy"]
-            p["vy"] *= 0.97
-            p["age"] += 1
-            if p["age"] <= p["life"] and p["x"] < self.width - 14:
-                alive.append(p)
-                col = _blend(main, INK, p["age"] / p["life"])
-                r = p["r"] * (1 - 0.4 * p["age"] / p["life"])
-                c.create_oval(p["x"] - r, p["y"] - r, p["x"] + r, p["y"] + r,
-                              fill=col, outline="", tags="fx")
-        self._parts = alive[-150:]
-        self._fx_pulse(state)
-
-    def _fx_pulse(self, state):
+    def _draw_pulse(self, state):
+        """A ring that swells out of the mic button while recording."""
         if state not in ("rec", "cmd"):
             self._pulse = 0.0
             return
@@ -395,44 +248,10 @@ class Overlay:
         r = 16 + self._pulse * 11
         color = _blend(MIC_COLORS[state], INK, 0.25 + self._pulse * 0.75)
         self.canvas.create_oval(mx - r, my - r, mx + r, my + r,
-                                outline=color, width=2, tags="fx")
-        self.canvas.tag_lower("fx", "mic")
-
-    def _fx_orb(self, state):
-        c = self.canvas
-        cx, cy = self.mic_center
-        color = MIC_COLORS.get(state, MIC_COLORS["idle"])
-        breath = 0.6 + 0.4 * math.sin(self._t * 0.8)
-        r = 26 + self._amp * 11 + (2.5 * breath if state == "idle" else 0)
-        c.coords(self.orb, cx - r, cy - r, cx + r, cy + r)
-        c.itemconfig(self.orb, fill=_blend(color, INK, 0.12 * (1 - self._amp)))
-        if state in ("rec", "cmd", "busy"):
-            for offset in (0.0, 0.5):
-                p = (self._pulse + offset) % 1.0
-                rr = r + 4 + p * 20
-                ring = _blend(color, TRANS, 0.3 + p * 0.7)
-                c.create_oval(cx - rr, cy - rr, cx + rr, cy + rr,
-                              outline=ring, width=2, tags="fx")
-            self._pulse = (self._pulse + 0.045 + self._amp * 0.05) % 1.0
-            self.canvas.tag_lower("fx", "grab")
-
-    def _fx_capsule(self, state):
-        c = self.canvas
-        cx = self.W / 2
-        main = FX_MAIN.get(state, FX_MAIN["idle"])
-        active = state in ("rec", "cmd", "busy")
-        glow_w = (30 + self._amp * (self.W - 90)) if active else 16 + 6 * math.sin(self._t * 0.7)
-        col = main if active else _blend(EDGE, INK, 0.35)
-        c.create_polygon(_rrect_pts(cx - glow_w, 65, cx + glow_w, 75, 5), smooth=True,
-                         fill=col, outline="", tags="fx")
-        show = "normal" if (self._hover or active) else "hidden"
-        c.itemconfigure("chip", state=show)
-
-    # --- render loop ---------------------------------------------------------------
+                                outline=color, width=2, tags="wave")
+        self.canvas.tag_lower("wave", "mic")
 
     def _poll(self):
-        if self.get_design() != self.design:
-            self._build(self.get_design())
         state = self.get_state()
         c = self.canvas
         active = state in ("rec", "busy", "cmd")
@@ -441,32 +260,35 @@ class Overlay:
         target = min(1.0, self.get_level() / 0.05) ** 0.7 if state in ("rec", "cmd") else 0.0
         self._amp += (target - self._amp) * (0.45 if target > self._amp else 0.12)
 
+        c.itemconfig(self.mic_circle, fill=MIC_COLORS.get(state, MIC_COLORS["idle"]))
         c.itemconfig(self.lang_text, text=self.get_language().upper()[:4])
         if self._flash > 0:
             self._flash -= 1
             c.itemconfig(self.copy_btn, text="✔" if self._flash else "📋")
 
-        c.delete("fx")
-        if self.design in ("waves", "equalizer", "particles"):
-            c.itemconfig(self.mic_circle, fill=MIC_COLORS.get(state, MIC_COLORS["idle"]))
-            tw = self.W if active else W_IDLE
-            th = H_REC - 4 if active else H_IDLE
-            if abs(self.width - tw) > 0.5 or abs(self.height - th) > 0.5:
-                self.width += (tw - self.width) * 0.3
-                self.height += (th - self.height) * 0.3
-                c.coords(self.bg, *_rrect_pts(1, 1, self.width, self.height - 1, PILL_R))
-            if self.width > FX_X0 + 40:
-                getattr(self, f"_fx_{self.design}")(state)
-            live = self.get_live_text() if active else ""
-            c.itemconfig(self.live, text=live[-90:],
-                         state="normal" if self.height > 80 and live else "hidden")
-        else:
-            getattr(self, f"_fx_{self.design}")(state)
-            live = self.get_live_text() if active else ""
-            shown = "normal" if live else "hidden"
-            c.itemconfig(self.live, text=live[-80:], state=shown)
-            if self.live_backdrop:
-                c.itemconfigure(self.live_backdrop, state=shown)
+        # eased expand/collapse; the WINDOW itself grows/shrinks too, otherwise
+        # Windows leaves stale purple ghosts in the transparent area after collapse
+        tw = W_REC if active else W_IDLE
+        th = H_REC - 2 if active else H_IDLE
+        if abs(self.width - tw) > 0.5 or abs(self.height - th) > 0.5:
+            if active:  # expand the window up-front so the growing pill has room
+                self.root.geometry(f"{W_REC}x{H_REC}")
+            self.width += (tw - self.width) * 0.3
+            self.height += (th - self.height) * 0.3
+            c.coords(self.bg, *_rrect_pts(1, 1, self.width, self.height - 1, PILL_R))
+        elif not active and self.root.winfo_width() != W_IDLE:
+            self.root.geometry(f"{W_IDLE}x{H_IDLE}")  # crop away the ghost area
+
+        c.delete("wave")
+        if self.width > WAVE_X0 + 40:
+            self._draw_waves(state)
+            self._draw_pulse(state)
+
+        live = self.get_live_text() if active else ""
+        shown = "normal" if (self.height > H_REC - 20 and live) else "hidden"
+        # keep it to one visual line inside the box
+        c.itemconfig(self.live, text=live[-60:], state=shown)
+        c.itemconfigure(self.live_box, state=shown)
 
         self.root.after(60, self._poll)
 
