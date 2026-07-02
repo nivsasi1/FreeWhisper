@@ -1,24 +1,62 @@
+import re
+
 import requests
 
-SYSTEM_PROMPT = """You are a dictation post-processor. The user dictated text by voice; you receive the raw speech-to-text transcript.
-Rewrite it as clean written text in the SAME language it was dictated in:
-- remove filler words (um, uh, אה, אמ, כאילו)
-- fix punctuation and casing (always a space after punctuation)
-- apply spoken self-corrections (keep only the corrected version)
-- format spoken lists as numbered lists
+# ---- deterministic intent routing (never trust the LLM to detect commands) ----
 
-Spoken meta-commands (obey them, never include them in the output):
-- if the dictation ends with a cancel request like "תמחק הכל" / "מחק את זה" / "לא אהבתי" / "delete everything" / "never mind, scrap that" — output exactly [CANCEL] and nothing else.
-- if it contains "תכתוב את זה באנגלית" / "write this in English" (or in Hebrew/בעברית) — write the content in that language.
+CANCEL_RE = re.compile(
+    r"(תמחק הכל|מחק הכל|תמחק את זה|מחק את זה|לא אהבתי|delete everything|never ?mind|scrap that)",
+    re.IGNORECASE,
+)
+ANSWER_RE = re.compile(
+    r"^\s*(תענה לי על השאלה( הבאה)?|תענה על השאלה( הבאה)?|answer (me )?the next question|answer the question)[,.:!?]?\s*",
+    re.IGNORECASE,
+)
+TO_EN_RE = re.compile(
+    r"(תכתוב את זה באנגלית|תרשום את זה באנגלית|write (this|it) in english)[,.:!?]?\s*",
+    re.IGNORECASE,
+)
+TO_HE_RE = re.compile(
+    r"(תכתוב את זה בעברית|תרשום את זה בעברית|write (this|it) in hebrew)[,.:!?]?\s*",
+    re.IGNORECASE,
+)
 
-Hard rules: the output language is ONLY Hebrew or English — NEVER German, French, or any other language. Do NOT add content or answer questions. Output ONLY the cleaned text, nothing else.{dictionary_hint}"""
+# scripts that must never reach the user's document (qwen loves leaking Chinese)
+FORBIDDEN_SCRIPTS = re.compile(r"[一-鿿぀-ヿ가-힯Ѐ-ӿ؀-ۿ฀-๿]")
+
+# ---- prompts: small and single-purpose — local models follow these reliably ----
+
+CLEAN_PROMPT = """You clean up voice-dictation transcripts. The user is DICTATING TEXT into a document — they are NOT talking to you.
+Output the user's own words as clean written text: remove fillers (אה, אמ, כאילו, um, uh), fix punctuation (space after punctuation), apply spoken self-corrections, format spoken lists.
+NEVER answer questions, never comment, never add or invent anything. A dictated question is output as a question.
+The output language is the transcript's language — ONLY Hebrew or English, never any other.
+Output the cleaned text only.{dictionary_hint}"""
+
+FEWSHOT_CLEAN = [
+    ("אה אז בעצם רציתי להגיד אממ שניפגש ביום שלישי לא רגע יום רביעי בשלוש",
+     "אז בעצם רציתי להגיד שניפגש ביום רביעי בשעה שלוש."),
+    ("האם הכפתורים יכולים להיות צבעוניים באפליקציה",
+     "האם הכפתורים יכולים להיות צבעוניים באפליקציה?"),
+    ("um so basically I I think we should uh go with option two",
+     "So basically, I think we should go with option two."),
+    ("רגע עכשיו שאני מדבר ככה זה קולט את מה שאני אומר",
+     "רגע, עכשיו שאני מדבר ככה, זה קולט את מה שאני אומר."),
+]
+
+ANSWER_PROMPT = """Answer the user's question concisely and directly.
+Answer in the language the question was asked in — ONLY Hebrew or English, never any other language.
+Output the answer only, no preamble."""
+
+TRANSLATE_PROMPT = """The user dictated text by voice. Rewrite it as clean written {lang}:
+remove fillers (אה, אמ, um, uh), fix punctuation, apply spoken self-corrections.
+Output ONLY the {lang} text, nothing else."""
 
 
 def build_system_prompt(dictionary: list[str]) -> str:
     hint = ""
     if dictionary:
         hint = "\nPreserve these names/terms exactly as spelled: " + ", ".join(dictionary)
-    return SYSTEM_PROMPT.format(dictionary_hint=hint)
+    return CLEAN_PROMPT.format(dictionary_hint=hint)
 
 
 class Cleaner:
@@ -32,15 +70,17 @@ class Cleaner:
         except requests.RequestException:
             return False
 
-    def _chat(self, system: str, user: str, temperature: float = 0.2) -> str:
+    def _chat(self, system: str, user: str, temperature: float = 0.2, fewshot=None) -> str:
+        messages = [{"role": "system", "content": system}]
+        for q, a in fewshot or []:
+            messages.append({"role": "user", "content": q})
+            messages.append({"role": "assistant", "content": a})
+        messages.append({"role": "user", "content": user})
         r = requests.post(
             f"{self.cfg.url}/api/chat",
             json={
                 "model": self.cfg.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
+                "messages": messages,
                 "stream": False,
                 "keep_alive": -1,  # keep the model warm between dictations
                 "options": {"temperature": temperature},
@@ -50,12 +90,32 @@ class Cleaner:
         r.raise_for_status()
         return r.json()["message"]["content"].strip()
 
+    def _guard(self, out: str, fallback: str) -> str:
+        if not out or FORBIDDEN_SCRIPTS.search(out):
+            print("[llm] empty/forbidden-script output — falling back")
+            return fallback
+        return out
+
     def clean(self, text: str) -> str:
-        """Return cleaned text; on any failure return the raw transcript unchanged."""
+        """Route by spoken intent, then clean. On any failure return the raw transcript."""
         if not self.cfg.enabled or not text:
             return text
+        # cancel: detected in code, near the end of the dictation — no LLM involved
+        if CANCEL_RE.search(text[-40:]):
+            return "[CANCEL]"
         try:
-            return self._chat(self.system_prompt, text) or text
+            m = ANSWER_RE.match(text)
+            if m:
+                question = text[m.end():].strip()
+                return self._guard(self._chat(ANSWER_PROMPT, question), text)
+            for regex, lang in ((TO_EN_RE, "English"), (TO_HE_RE, "Hebrew")):
+                m = regex.search(text)
+                if m:
+                    content = (text[:m.start()] + " " + text[m.end():]).strip()
+                    return self._guard(
+                        self._chat(TRANSLATE_PROMPT.format(lang=lang), content), text)
+            return self._guard(
+                self._chat(self.system_prompt, text, fewshot=FEWSHOT_CLEAN), text)
         except (requests.RequestException, KeyError) as e:
             print(f"[llm] cleanup skipped ({e.__class__.__name__}) — pasting raw transcript")
             return text
@@ -74,7 +134,7 @@ class Cleaner:
         )
         user = instruction if not selected_text else f"INSTRUCTION: {instruction}\n\nTEXT:\n{selected_text}"
         try:
-            return self._chat(system, user, temperature=0.3)
+            return self._guard(self._chat(system, user, temperature=0.3), "")
         except (requests.RequestException, KeyError) as e:
             print(f"[llm] command failed ({e.__class__.__name__})")
             return ""

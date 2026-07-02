@@ -10,7 +10,7 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 class LLMConfig:
     enabled: bool = True
     url: str = "http://localhost:11434"
-    model: str = "qwen2.5:7b"
+    model: str = "gemma3:12b"
     timeout_s: int = 30
 
 

@@ -21,7 +21,7 @@ beam_size: 5
 llm:
   enabled: true
   url: http://localhost:11434
-  model: qwen2.5:7b
+  model: gemma3:12b             # best Hebrew quality; qwen2.5:7b is faster but garbles words
   timeout_s: 60                 # first call loads the model into VRAM and can be slow
 
 # Personal dictionary: names/terms you use often. Biases both the STT and the LLM.
