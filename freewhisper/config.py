@@ -1,0 +1,43 @@
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+@dataclass
+class LLMConfig:
+    enabled: bool = True
+    url: str = "http://localhost:11434"
+    model: str = "qwen2.5:7b"
+    timeout_s: int = 30
+
+
+@dataclass
+class Config:
+    hotkey: str = "ctrl+shift+space"
+    language_toggle_hotkey: str = "ctrl+alt+l"
+    language: str = "he"
+    models: dict = field(default_factory=lambda: {
+        "he": "ivrit-ai/whisper-large-v3-turbo-ct2",
+        "en": "deepdml/faster-whisper-large-v3-turbo-ct2",
+    })
+    device: str = "auto"
+    compute_type: str = "default"
+    beam_size: int = 5
+    llm: LLMConfig = field(default_factory=LLMConfig)
+    dictionary: list = field(default_factory=list)
+    paste_delay_ms: int = 150
+    input_device: int | None = None
+    overlay: bool = True
+    silence_seconds: float = 2.0
+    silence_threshold: float = 0.008
+    max_record_s: float = 120.0
+
+
+def load(path: Path = CONFIG_PATH) -> Config:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    llm = LLMConfig(**raw.pop("llm", {}))
+    known = {k: v for k, v in raw.items() if k in Config.__dataclass_fields__}
+    return Config(llm=llm, **known)

@@ -1,0 +1,10 @@
+faster-whisper>=1.1,<2
+sounddevice>=0.5
+numpy>=2
+keyboard>=0.13.5
+pyperclip>=1.9
+pystray>=0.19
+Pillow>=10
+requests>=2.32
+PyYAML>=6
+pytest>=8

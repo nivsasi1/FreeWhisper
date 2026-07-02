@@ -1,0 +1,33 @@
+# FreeWhisper settings
+hotkey: ctrl+shift+space        # tap once to start recording (auto-stops on silence)
+                                # (ctrl+alt+space is taken by Claude Desktop)
+language_toggle_hotkey: ctrl+alt+l
+language: he                    # he | en (switch via hotkey or the floating widget)
+
+silence_seconds: 2              # stop recording after this much quiet
+silence_threshold: 0.008        # mic level counted as "talking" (see --test-mic)
+max_record_s: 120               # hard cap per dictation
+
+models:
+  # Hebrew fine-tune (ivrit.ai) in CTranslate2 format, English = stock large-v3-turbo
+  he: ivrit-ai/whisper-large-v3-turbo-ct2
+  en: deepdml/faster-whisper-large-v3-turbo-ct2
+
+device: auto                    # auto | cuda | cpu
+compute_type: default           # default | float16 | int8_float16 | int8
+beam_size: 5
+
+llm:
+  enabled: true
+  url: http://localhost:11434
+  model: qwen2.5:7b
+  timeout_s: 60                 # first call loads the model into VRAM and can be slow
+
+# Personal dictionary: names/terms you use often. Biases both the STT and the LLM.
+dictionary: []
+#  - לב התחביב
+#  - Preact
+
+paste_delay_ms: 150             # wait before/after Ctrl+V so the target app keeps up
+input_device: null              # mic index from `--check`; null = system default
+overlay: true                   # floating always-on-top widget (record / HE-EN / quit)
