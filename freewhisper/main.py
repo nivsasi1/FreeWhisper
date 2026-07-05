@@ -213,10 +213,14 @@ class App:
             import pystray
             from PIL import Image, ImageDraw
 
-            img = Image.new("RGB", (64, 64), "#5b2d8e")
-            d = ImageDraw.Draw(img)
-            d.ellipse((16, 8, 48, 40), fill="white")
-            d.rectangle((28, 40, 36, 54), fill="white")
+            icon_png = Path(__file__).resolve().parent.parent / "freewhisper_icon.png"
+            if icon_png.exists():
+                img = Image.open(icon_png)
+            else:
+                img = Image.new("RGB", (64, 64), "#5b2d8e")
+                d = ImageDraw.Draw(img)
+                d.ellipse((16, 8, 48, 40), fill="white")
+                d.rectangle((28, 40, 36, 54), fill="white")
             menu = pystray.Menu(
                 pystray.MenuItem(lambda item: f"Language: {self.language} (cycle)", self.cycle_language),
                 pystray.MenuItem("Quit", self.quit),
