@@ -35,6 +35,7 @@ class Config:
     overlay: bool = True
     live_typing: bool = True
     screen: str = "secondary"      # primary | secondary | monitor index — where the widget opens
+    sound_cues: bool = True        # subtle blip at recording start/stop
     restore_clipboard: bool = False
     silence_seconds: float = 2.0
     silence_threshold: float = 0.008

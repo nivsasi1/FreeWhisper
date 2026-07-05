@@ -40,6 +40,15 @@ class Transcriber:
             print("[stt] model ready")
         return self._models[key]
 
+    def warm(self, language: str):
+        """Pre-load models in the background so the first dictation isn't slow."""
+        keys = ["en", "he"] if language == "auto" else [language]
+        for k in keys:
+            try:
+                self._get_model(k)
+            except Exception as e:
+                print(f"[stt] warm '{k}' failed: {e}")
+
     def _run(self, model, audio, language, beam_size):
         prompt = ", ".join(self.cfg.dictionary) or None
         segments, info = model.transcribe(
@@ -52,9 +61,11 @@ class Transcriber:
         text = " ".join(s.text.strip() for s in segments).strip()
         return text, info
 
-    @staticmethod
-    def _best_he_or_en(info) -> str:
-        """Language lock: choose he or en only, whichever Whisper scored higher."""
+    def _detect(self, audio) -> str:
+        """Detect he/en WITHOUT a full decode (info is ready before iterating
+        segments, so this is just encode + language ID — no beam search)."""
+        clip = audio[:16000 * 15]  # a few seconds is plenty for language ID
+        _, info = self._get_model("en").transcribe(clip, language=None, vad_filter=True)
         probs = dict(getattr(info, "all_language_probs", None) or [])
         if probs:
             return "he" if probs.get("he", 0.0) >= probs.get("en", 0.0) else "en"
@@ -63,17 +74,11 @@ class Transcriber:
     def transcribe(self, audio: np.ndarray, language: str) -> str:
         if audio.size < 1600:  # <0.1s — hotkey tap, not speech
             return ""
+        lang = language
         if language == "auto":
-            text, info = self._run(self._get_model("en"), audio, None, self.cfg.beam_size)
-            lang = self._best_he_or_en(info)
-            print(f"[stt] detected: {info.language} → using {lang}")
-            if lang == "he":
-                text, _ = self._run(self._get_model("he"), audio, "he", self.cfg.beam_size)
-            elif info.language != "en":
-                # detector wandered off (e.g. German) — force a clean English pass
-                text, _ = self._run(self._get_model("en"), audio, "en", self.cfg.beam_size)
-            return text
-        text, _ = self._run(self._get_model(language), audio, language, self.cfg.beam_size)
+            lang = self._detect(audio)          # cheap detect, then ONE full pass
+            print(f"[stt] detected → {lang}")
+        text, _ = self._run(self._get_model(lang), audio, lang, self.cfg.beam_size)
         return text
 
     def partial(self, audio: np.ndarray, language: str) -> str:

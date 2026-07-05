@@ -8,6 +8,7 @@ from collections import deque
 from pathlib import Path
 
 from . import config as config_mod
+from . import sounds
 from .cleaner import Cleaner
 from .injector import copy_text, grab_selection, paste_text, send_backspaces, type_text
 from .recorder import Recorder, rms
@@ -39,6 +40,7 @@ class App:
         self.typed = ""              # what live-typing has inserted into the target field
         self.type_lock = threading.Lock()
         self.history = deque(maxlen=20)
+        self.llm_ok = True           # is Ollama reachable? (drives the widget dot)
         self._overlay = None
         self._tray = None
 
@@ -57,6 +59,8 @@ class App:
         try:
             self.recorder.start()
             self.state = "cmd" if mode == "command" else "rec"
+            if self.cfg.sound_cues:
+                sounds.play_start()
             print(f"[rec] ● {mode} ({self.language}) — stops after "
                   f"{self.cfg.silence_seconds:.0f}s of silence")
             threading.Thread(target=self._watchdog, daemon=True).start()
@@ -69,6 +73,8 @@ class App:
         if not self.recorder.recording:
             return
         audio = self.recorder.stop()
+        if self.cfg.sound_cues:
+            sounds.play_stop()
         print(f"[rec] ■ {audio.size / 16000:.1f}s captured, level={rms(audio):.4f}")
         threading.Thread(target=self._process, args=(audio, self.mode), daemon=True).start()
 
@@ -230,6 +236,12 @@ class App:
         except Exception as e:
             print(f"[tray] unavailable ({e})")
 
+    def _llm_watch(self):
+        """Poll Ollama so the widget can show a 'no cleanup' dot when it's down."""
+        while True:
+            self.llm_ok = (not self.cfg.llm.enabled) or self.cleaner.available()
+            time.sleep(15)
+
     def run(self):
         import keyboard
 
@@ -238,12 +250,17 @@ class App:
         keyboard.add_hotkey(self.cfg.language_toggle_hotkey, self.cycle_language)
         self._start_tray()
 
+        # pre-warm the STT models so the first dictation isn't slow
+        threading.Thread(target=self.transcriber.warm, args=(self.cfg.language,),
+                         daemon=True).start()
+
         if self.cfg.llm.enabled:
             if self.cleaner.available():
                 # pre-warm: first Ollama call loads ~5GB into VRAM (can take ~1 min)
                 threading.Thread(target=self.cleaner.clean, args=("hi",), daemon=True).start()
             else:
                 print("[llm] WARNING: Ollama not reachable — will paste raw transcripts until it is")
+        threading.Thread(target=self._llm_watch, daemon=True).start()
 
         print(f"FreeWhisper ready. {self.cfg.hotkey}=dictate, {self.cfg.command_hotkey}=command, "
               f"{self.cfg.language_toggle_hotkey}=language ({self.language}).")
@@ -260,6 +277,7 @@ class App:
                     get_language=lambda: self.language,
                     get_level=lambda: self.recorder.recent_rms(0.08) if self.recorder.recording else 0.0,
                     get_live_text=lambda: self.live_text,
+                    get_llm_ok=lambda: self.llm_ok,
                     on_record=self.toggle_recording,
                     on_command=self.toggle_command,
                     on_cycle_language=self.cycle_language,

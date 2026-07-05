@@ -39,6 +39,7 @@ restore_clipboard: false        # false = the result stays in your clipboard (re
 input_device: null              # mic index from `--check`; null = system default
 overlay: true                   # floating always-on-top widget (record / HE-EN / quit)
 screen: secondary               # primary | secondary | 0/1/2… — which monitor the widget opens on
+sound_cues: true                # subtle blip when recording starts / stops
 live_typing: true               # stream the draft into the target field while you speak,
                                 # then replace it with the clean version (don't move the
                                 # cursor mid-dictation!)

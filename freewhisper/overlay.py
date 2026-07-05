@@ -57,7 +57,7 @@ def _no_activate(tk_window):
 class Overlay:
     def __init__(self, get_state, get_language, get_level, get_live_text,
                  on_record, on_command, on_cycle_language, on_copy_last,
-                 get_history, on_quit, origin=None):
+                 get_history, on_quit, origin=None, get_llm_ok=None):
         import tkinter as tk
         self.tk = tk
 
@@ -66,6 +66,7 @@ class Overlay:
         self.get_level = get_level
         self.get_live_text = get_live_text
         self.get_history = get_history
+        self.get_llm_ok = get_llm_ok or (lambda: True)
         self.on_copy_last = on_copy_last
         self.width = float(W_IDLE)
         self.height = float(H_IDLE)
@@ -138,6 +139,10 @@ class Overlay:
         self.copy_btn = c.create_text(166, y, text="📋", font=("Segoe UI", 12), tags="copy")
         c.create_text(196, y, text="🕘", font=("Segoe UI", 12), tags="hist")
         c.create_text(226, y, text="✕", fill=X_FG, font=("Segoe UI", 12, "bold"), tags="x")
+        # small red dot (top-left of the pill) = Ollama unreachable → pasting raw
+        dy = H_REC - H_IDLE + 6
+        self.llm_dot = c.create_oval(7, dy, 13, dy + 6, fill="#e05555",
+                                     outline="", state="hidden")
 
         # live transcript inset box ABOVE the control row (grows upward when active)
         self.live_box = c.create_polygon(
@@ -289,6 +294,7 @@ class Overlay:
         else:
             c.itemconfig(self.mic_circle, fill=col)
         c.itemconfig(self.lang_text, text=self.get_language().upper()[:4])
+        c.itemconfig(self.llm_dot, state="hidden" if self.get_llm_ok() else "normal")
         if self._flash > 0:
             self._flash -= 1
             c.itemconfig(self.copy_btn, text="✔" if self._flash else "📋")
