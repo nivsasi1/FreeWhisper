@@ -250,7 +250,10 @@ class App:
 
         if self.cfg.overlay:
             try:
-                from .overlay import Overlay
+                from . import screens
+                from .overlay import Overlay, W_REC
+                # bottom-right of the chosen monitor, stacked ABOVE the Jarvis orb
+                origin = screens.corner(self.cfg.screen, W_REC, 108, margin_r=16, margin_b=110)
                 self._overlay = Overlay(
                     get_state=lambda: self.state,
                     get_language=lambda: self.language,
@@ -262,6 +265,7 @@ class App:
                     on_copy_last=self.copy_last,
                     get_history=lambda: list(self.history),
                     on_quit=self.quit,
+                    origin=origin,
                 )
                 self._overlay.run()   # blocks; Ctrl+C lands here and falls through
                 self.quit()

@@ -57,7 +57,7 @@ def _no_activate(tk_window):
 class Overlay:
     def __init__(self, get_state, get_language, get_level, get_live_text,
                  on_record, on_command, on_cycle_language, on_copy_last,
-                 get_history, on_quit):
+                 get_history, on_quit, origin=None):
         import tkinter as tk
         self.tk = tk
 
@@ -82,8 +82,10 @@ class Overlay:
         root.attributes("-topmost", True)
         root.attributes("-transparentcolor", TRANS)
         root.attributes("-alpha", 0.97)
-        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-        root.geometry(f"{W_REC}x{H_REC}+{sw - W_REC - 40}+{sh - H_REC - 120}")
+        if origin is None:
+            sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+            origin = (sw - W_REC - 40, sh - H_REC - 120)
+        root.geometry(f"{W_REC}x{H_REC}+{origin[0]}+{origin[1]}")
 
         c = tk.Canvas(root, width=W_REC, height=H_REC, bg=TRANS, highlightthickness=0)
         c.pack()
