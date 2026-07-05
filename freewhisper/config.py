@@ -45,5 +45,8 @@ class Config:
 def load(path: Path = CONFIG_PATH) -> Config:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     llm = LLMConfig(**raw.pop("llm", {}))
+    unknown = [k for k in raw if k not in Config.__dataclass_fields__]
+    if unknown:
+        print(f"[config] ignoring unknown keys (typo?): {', '.join(unknown)}")
     known = {k: v for k, v in raw.items() if k in Config.__dataclass_fields__}
     return Config(llm=llm, **known)

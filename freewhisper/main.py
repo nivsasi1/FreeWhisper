@@ -39,6 +39,7 @@ class App:
         self.live_text = ""          # partial transcript for the overlay
         self.typed = ""              # what live-typing has inserted into the target field
         self.type_lock = threading.Lock()
+        self._rec_lock = threading.Lock()   # makes start/stop atomic vs double-trigger
         self.history = deque(maxlen=20)
         self.llm_ok = True           # is Ollama reachable? (drives the widget dot)
         self._overlay = None
@@ -70,9 +71,10 @@ class App:
             print(f"[rec] mic error: {e}")
 
     def stop_recording(self):
-        if not self.recorder.recording:
-            return
-        audio = self.recorder.stop()
+        with self._rec_lock:            # atomic: only one caller actually stops
+            if not self.recorder.recording:
+                return
+            audio = self.recorder.stop()
         if self.cfg.sound_cues:
             sounds.play_stop()
         print(f"[rec] ■ {audio.size / 16000:.1f}s captured, level={rms(audio):.4f}")
