@@ -86,7 +86,7 @@ GPU inference needs the NVIDIA runtime wheels — already in `requirements.txt` 
 
 | Key | What it does |
 |---|---|
-| `hotkey` | dictation hotkey (default `ctrl+shift+space`; `ctrl+alt+space` is taken by Claude Desktop) |
+| `hotkey` | dictation hotkey (default `ctrl+shift+space`; `ctrl+alt+space` is taken on my machine) |
 | `language` | startup language, `he` / `en` |
 | `silence_seconds` | how much quiet ends a dictation (default 2) |
 | `silence_threshold` | mic level that counts as "talking" — calibrate with `--test-mic` |

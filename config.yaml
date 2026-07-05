@@ -1,6 +1,6 @@
 # FreeWhisper settings
 hotkey: ctrl+shift+space        # tap once to start recording (auto-stops on silence)
-                                # (ctrl+alt+space is taken by Claude Desktop)
+                                # (ctrl+alt+space is taken on my machine)
 command_hotkey: ctrl+shift+c    # speak an instruction about the selected text (⚡)
                                 # (note: also opens DevTools inspect in browsers)
 language_toggle_hotkey: ctrl+alt+l
