@@ -91,9 +91,12 @@ class Overlay:
         c.pack()
         self.canvas = c
 
-        self.bg = c.create_polygon(_rrect_pts(1, 1, W_IDLE, H_IDLE - 1, PILL_R),
-                                   smooth=True, fill=INK, outline=EDGE, width=2)
-        y = H_IDLE // 2
+        # panel is bottom-anchored: the control row sits flush at the bottom and
+        # the panel grows UPWARD when active (transcript appears above the row)
+        self.bg = c.create_polygon(
+            _rrect_pts(1, H_REC - H_IDLE, W_IDLE, H_REC - 1, PILL_R),
+            smooth=True, fill=INK, outline=EDGE, width=2)
+        y = H_REC - H_IDLE // 2
         self.grip = c.create_text(16, y, text="⠿", fill=GRIP, font=("Segoe UI", 12))
 
         mx = 48
@@ -128,19 +131,19 @@ class Overlay:
                           capstyle="round", tags="mic")
 
         c.create_text(78, y, text="⚡", fill="#e8c96a", font=("Segoe UI", 13), tags="cmd")
-        c.create_polygon(_rrect_pts(94, 14, 148, H_IDLE - 14, 12), smooth=True,
-                         fill=PILL_BG, outline="", tags="lang")
+        c.create_polygon(_rrect_pts(94, H_REC - H_IDLE + 14, 148, H_REC - 14, 12),
+                         smooth=True, fill=PILL_BG, outline="", tags="lang")
         self.lang_text = c.create_text(121, y, text="", fill="white",
                                        font=("Segoe UI", 10, "bold"), tags="lang")
         self.copy_btn = c.create_text(166, y, text="📋", font=("Segoe UI", 12), tags="copy")
         c.create_text(196, y, text="🕘", font=("Segoe UI", 12), tags="hist")
         c.create_text(226, y, text="✕", fill=X_FG, font=("Segoe UI", 12, "bold"), tags="x")
 
-        # live transcript inset box (visible only while expanded and speaking)
+        # live transcript inset box ABOVE the control row (grows upward when active)
         self.live_box = c.create_polygon(
-            _rrect_pts(14, 62, W_REC - 14, H_REC - 8, 12), smooth=True,
+            _rrect_pts(14, 8, W_REC - 14, H_REC - H_IDLE - 4, 12), smooth=True,
             fill=INSET, outline=EDGE_DIM, width=1, state="hidden")
-        self.live = c.create_text(W_REC - 26, (62 + H_REC - 8) / 2, text="",
+        self.live = c.create_text(W_REC - 26, (8 + H_REC - H_IDLE - 4) / 2, text="",
                                   fill=LIVE_FG, anchor="e", font=("Segoe UI", 10),
                                   width=W_REC - 52, state="hidden")
 
@@ -239,7 +242,7 @@ class Overlay:
         span = x1 - x0
         if span < 40:
             return
-        cy = H_IDLE / 2
+        cy = H_REC - H_IDLE / 2
         main = WAVE_MAIN.get(state, WAVE_MAIN["idle"])
         base = 2.5 + self._amp * 15
         for amp_f, cycles, speed, color in (
@@ -290,18 +293,15 @@ class Overlay:
             self._flash -= 1
             c.itemconfig(self.copy_btn, text="✔" if self._flash else "📋")
 
-        # eased expand/collapse; the WINDOW itself grows/shrinks too, otherwise
-        # Windows leaves stale purple ghosts in the transparent area after collapse
+        # eased expand/collapse — panel grows UPWARD from the flush-bottom row.
+        # The window stays a fixed full size; only the drawn panel animates.
         tw = W_REC if active else W_IDLE
         th = H_REC - 2 if active else H_IDLE
         if abs(self.width - tw) > 0.5 or abs(self.height - th) > 0.5:
-            if active:  # expand the window up-front so the growing pill has room
-                self.root.geometry(f"{W_REC}x{H_REC}")
             self.width += (tw - self.width) * 0.3
             self.height += (th - self.height) * 0.3
-            c.coords(self.bg, *_rrect_pts(1, 1, self.width, self.height - 1, PILL_R))
-        elif not active and self.root.winfo_width() != W_IDLE:
-            self.root.geometry(f"{W_IDLE}x{H_IDLE}")  # crop away the ghost area
+            c.coords(self.bg, *_rrect_pts(1, H_REC - self.height, self.width,
+                                          H_REC - 1, PILL_R))
 
         c.delete("wave")
         if self.width > WAVE_X0 + 40:
