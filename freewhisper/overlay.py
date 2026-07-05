@@ -96,16 +96,34 @@ class Overlay:
 
         mx = 48
         self.mic_center = (mx, y)
+        # Higgsfield glowing mic image with a state-colored ring behind it;
+        # falls back to a drawn vector mic if the asset/PIL is unavailable
+        self._mic_img = None
+        try:
+            from pathlib import Path
+
+            from PIL import Image as _PImage, ImageTk as _ImageTk
+            p = Path(__file__).resolve().parent.parent / "widget_mic.png"
+            if p.exists():
+                im = _PImage.open(p).convert("RGBA")
+                im.thumbnail((26, 26), _PImage.LANCZOS)
+                self._mic_img = _ImageTk.PhotoImage(im)
+        except Exception:
+            self._mic_img = None
         self.mic_circle = c.create_oval(mx - 15, y - 15, mx + 15, y + 15,
-                                        fill=MIC_COLORS["idle"], outline="", tags="mic")
-        # clean minimal mic: capsule head, cradle arc, stem, base
-        c.create_oval(mx - 4, y - 10, mx + 4, y + 1, fill="white", outline="", tags="mic")
-        c.create_arc(mx - 8, y - 8, mx + 8, y + 6, start=180, extent=180,
-                     style="arc", outline="white", width=2, tags="mic")
-        c.create_line(mx, y + 6, mx, y + 10, fill="white", width=2,
-                      capstyle="round", tags="mic")
-        c.create_line(mx - 4, y + 10, mx + 4, y + 10, fill="white", width=2,
-                      capstyle="round", tags="mic")
+                                        fill=(INK if self._mic_img else MIC_COLORS["idle"]),
+                                        outline=(MIC_COLORS["idle"] if self._mic_img else ""),
+                                        width=2, tags="mic")
+        if self._mic_img:
+            c.create_image(mx, y, image=self._mic_img, tags="mic")
+        else:
+            c.create_oval(mx - 4, y - 10, mx + 4, y + 1, fill="white", outline="", tags="mic")
+            c.create_arc(mx - 8, y - 8, mx + 8, y + 6, start=180, extent=180,
+                         style="arc", outline="white", width=2, tags="mic")
+            c.create_line(mx, y + 6, mx, y + 10, fill="white", width=2,
+                          capstyle="round", tags="mic")
+            c.create_line(mx - 4, y + 10, mx + 4, y + 10, fill="white", width=2,
+                          capstyle="round", tags="mic")
 
         c.create_text(78, y, text="⚡", fill="#e8c96a", font=("Segoe UI", 13), tags="cmd")
         c.create_polygon(_rrect_pts(94, 14, 148, H_IDLE - 14, 12), smooth=True,
@@ -260,7 +278,11 @@ class Overlay:
         target = min(1.0, self.get_level() / 0.05) ** 0.7 if state in ("rec", "cmd") else 0.0
         self._amp += (target - self._amp) * (0.45 if target > self._amp else 0.12)
 
-        c.itemconfig(self.mic_circle, fill=MIC_COLORS.get(state, MIC_COLORS["idle"]))
+        col = MIC_COLORS.get(state, MIC_COLORS["idle"])
+        if self._mic_img:               # image mic → show state via the ring
+            c.itemconfig(self.mic_circle, outline=col)
+        else:
+            c.itemconfig(self.mic_circle, fill=col)
         c.itemconfig(self.lang_text, text=self.get_language().upper()[:4])
         if self._flash > 0:
             self._flash -= 1
