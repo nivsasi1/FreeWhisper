@@ -1,129 +1,81 @@
-# 🎙️ FreeWhisper
+# FreeWhisper
 
-**Local, free, private voice dictation for Windows — a Wispr Flow clone that runs 100% on your own machine.**
+**Free, private, local voice dictation for Windows — speak Hebrew or English anywhere, get clean AI-polished text at your cursor. No cloud, no subscription, no audio ever leaves your machine.**
 
-Tap a hotkey anywhere, speak in **Hebrew or English**, stop talking — and clean,
-AI-polished text appears at your cursor. No cloud, no subscription, no audio ever leaving your PC.
+Think Wispr Flow, but running 100% on your own GPU. Tap a hotkey in any app, talk, go quiet — and a locally-run Whisper model transcribes you while a local LLM strips the filler words, fixes punctuation, and even applies your spoken self-corrections ("on Tuesday... no wait, Wednesday" comes out as just Wednesday). Hebrew support is first-class, not an afterthought: it uses the [ivrit.ai](https://huggingface.co/ivrit-ai) Whisper fine-tune (state of the art for Hebrew STT) and pastes via the clipboard because simulated typing mangles RTL text.
 
-- **STT**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on the GPU —
-  Hebrew via the [ivrit.ai](https://huggingface.co/ivrit-ai) fine-tune (state of the art for Hebrew),
-  English via stock Whisper large-v3-turbo
-- **Cleanup**: a local LLM through [Ollama](https://ollama.com) (`qwen2.5:7b`) removes filler words
-  (אה, אמ, um, uh), fixes punctuation, applies spoken self-corrections ("ביום שלישי, לא רגע, רביעי" → רביעי)
-- **UI**: a small always-on-top floating pill with a live waveform that dances with your voice
+## Demo
+
+<!-- demo GIF goes here: record yourself dictating in Hebrew + English -->
+*Demo coming soon.*
+
+## Features
+
+- **Tap-to-dictate anywhere** — `Ctrl+Shift+Space` in any app; recording auto-stops after ~2s of silence (RMS watchdog) or on a second tap
+- **Bilingual with per-dictation auto-detect** — a cheap language-ID pass picks Hebrew or English, then a single full decode runs on the right model
+- **LLM cleanup that fails open** — filler removal, punctuation, spoken self-corrections, list formatting; if Ollama is down, the raw transcript is pasted instead of losing your words
+- **Live typing** — a low-beam partial transcript streams into the field as you speak, then gets erased and replaced by the final clean version
+- **Command mode** — select text anywhere, `Ctrl+Shift+C`, speak an instruction ("translate to English", "תקצר את זה") and the result replaces it
+- **Spoken intents, detected in code** — "delete everything / תמחק הכל" cancels, "write this in English / תכתוב באנגלית" switches output language; routed by regex, never trusted to the LLM
+- **Floating overlay widget** — always-on-top pill with a voice-reactive waveform, live transcript, history, and a `WS_EX_NOACTIVATE` window style so clicking it never steals focus from the field you're dictating into
+- **Personal dictionary** — your names/terms bias both Whisper (initial prompt) and the LLM prompt
+- **Output guard** — a script filter blocks CJK/Cyrillic/Arabic leakage (small local models love sneaking those in) and falls back to the raw transcript
+- **Quality-of-life** — tray icon, start/stop sound cues, multi-monitor widget placement, single-instance lock, `--check` environment doctor, `--test-mic` calibration
 
 ## How it works
 
 ```
-tap Ctrl+Shift+Space (or click the mic)
-        │
-        ▼
-🎤 record until you go quiet for ~2s        (sounddevice, RMS silence watchdog)
-        │
-        ▼
-📝 faster-whisper transcribes on the GPU    (HE: ivrit.ai turbo / EN: large-v3-turbo)
-        │
-        ▼
-🤖 Ollama LLM cleans the transcript         (fillers, punctuation, corrections, lists)
-        │
-        ▼
-📋 pasted at your cursor via clipboard      (Ctrl+V — the only method that survives Hebrew/RTL)
+hotkey → record (sounddevice, 16 kHz) → faster-whisper on GPU → Ollama cleanup → Ctrl+V paste
 ```
 
-## Using it
+- **STT**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2) with one lazily-loaded, pre-warmed model per language — Hebrew: `ivrit-ai/whisper-large-v3-turbo-ct2`, English: `deepdml/faster-whisper-large-v3-turbo-ct2`
+- **Auto language**: the multilingual model does a cheap encode-only language ID on the first ~15s, then exactly one full beam-search pass runs on the winning model (the Hebrew fine-tune gave up language detection, so it can't go first)
+- **Cleanup**: a local LLM via [Ollama](https://ollama.com)'s `/api/chat` (default `gemma3:12b` — best Hebrew quality; `qwen2.5:7b` is faster), with few-shot examples and `keep_alive: -1` so the model stays warm between dictations
+- **Injection**: clipboard-save → `Ctrl+V` → optional restore (`keyboard` + `pyperclip`) — the only method that reliably survives Hebrew/RTL
+- **UI**: a tkinter overlay polled at 60 ms from worker threads; Win32 calls via `ctypes` for the no-focus-steal window style and monitor placement
 
-| Action | How |
-|---|---|
-| Start dictating | **Ctrl+Shift+Space** or click the 🎤 mic on the widget |
-| Stop | just stop talking (~2s), or tap the hotkey again |
-| Command mode (⚡) | select text anywhere → **Ctrl+Shift+C** → speak an instruction ("translate to English", "תקצר את זה") — the result replaces/pastes |
-| Language | **Ctrl+Alt+L** or the pill cycles **AUTO → HE → EN** (auto detects per dictation) |
-| Copy last result | 📋 on the widget (turns ✔) |
-| History | 🕘 opens the last dictations — click a row to copy it |
-| Move the widget | drag it by the ⠿ grip |
-| Quit completely | **✕** on the widget, or tray icon → Quit |
+## Requirements
 
-While you talk the widget expands: waveform bars dance with your voice and a **live transcript**
-streams underneath. Colors: 🟣 idle · 🔴 dictating · 🔵 command · 🟠 processing.
+- Windows 10/11
+- Python 3.12+ (built on 3.14)
+- An NVIDIA GPU is strongly recommended (CUDA runtime installed as pip wheels — no CUDA Toolkit needed); CPU fallback works with `device: cpu`, `compute_type: int8`
+- [Ollama](https://ollama.com) for the cleanup step (optional — `llm.enabled: false` pastes raw transcripts)
 
-**Live typing** (`live_typing: true`): the draft is typed straight into the field you're
-dictating into as you speak, then erased and replaced with the clean LLM version at the end —
-just don't move the cursor mid-dictation.
-
-**Spoken commands inside a dictation**: end with "תמחק הכל" / "delete everything, never mind"
-to cancel (nothing is pasted); say "תכתוב את זה באנגלית" / "write this in English" to switch
-the output language. Output is locked to Hebrew/English only — both at the Whisper
-language-detection level and in the LLM prompt.
-
-The widget window is set `WS_EX_NOACTIVATE`, so clicking its buttons never steals focus —
-your cursor stays in the text field and the paste lands there.
-
-FreeWhisper starts automatically at login (shortcut in `shell:startup`) and runs windowless —
-logs go to `freewhisper.log`. A desktop shortcut launches it manually; a single-instance
-lock (port 47814) makes double-launching harmless.
-
-## Setup (fresh machine)
+## Install & run
 
 ```powershell
-# 1. dependencies
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+git clone https://github.com/nivsasi1/FreeWhisper
+cd FreeWhisper
+winget install Ollama.Ollama   # if you don't have it
+.\setup.ps1                    # venv, deps, CUDA wheels, ollama pull, desktop + startup shortcuts
+```
 
-# 2. Ollama + the cleanup model
-winget install Ollama.Ollama
-ollama pull qwen2.5:7b
+Then verify and launch:
 
-# 3. sanity check (mic / CUDA / Ollama), then run
-.venv\Scripts\python -m freewhisper --check
+```powershell
+.venv\Scripts\python -m freewhisper --check   # mic / CUDA / Ollama sanity check
 .venv\Scripts\python -m freewhisper
 ```
 
-The two Whisper models (~1.6 GB each) download from Hugging Face on first use.
-GPU inference needs the NVIDIA runtime wheels — already in `requirements.txt` scope via
-`pip install nvidia-cublas-cu12 nvidia-cudnn-cu12` (the app adds their DLLs to the search path itself).
+The two Whisper models (~1.6 GB each) download from Hugging Face on first use. `setup.ps1` also creates a startup shortcut, so FreeWhisper runs windowless at login (logs go to `freewhisper.log`).
 
-## Configuration — `config.yaml`
+All settings — hotkeys, silence threshold, models, LLM, personal dictionary, mic device, widget — live in [`config.yaml`](config.yaml), which is fully commented.
 
-| Key | What it does |
+| Action | How |
 |---|---|
-| `hotkey` | dictation hotkey (default `ctrl+shift+space`; `ctrl+alt+space` is taken on my machine) |
-| `language` | startup language, `he` / `en` |
-| `silence_seconds` | how much quiet ends a dictation (default 2) |
-| `silence_threshold` | mic level that counts as "talking" — calibrate with `--test-mic` |
-| `models` | per-language faster-whisper model ids |
-| `llm.model` | Ollama model for cleanup; `llm.enabled: false` pastes raw transcripts |
-| `dictionary` | your names/terms — biases both Whisper and the LLM (e.g. לב התחביב) |
-| `input_device` | mic index from `--check` (null = system default) |
-| `overlay` | show the floating widget |
+| Dictate | `Ctrl+Shift+Space` or the mic button |
+| Stop | go quiet (~2s) or tap again |
+| Command on selection | `Ctrl+Shift+C`, then speak |
+| Cycle AUTO → HE → EN | `Ctrl+Alt+L` or the language pill |
+| History / copy last | widget buttons |
 
-## Troubleshooting
-
-- **Nothing pastes** → run `.venv\Scripts\python -m freewhisper --test-mic` *while speaking*.
-  `SILENT` means wrong mic — pick an index from `--check` into `input_device`.
-- **`cublas64_12.dll not found`** → `pip install nvidia-cublas-cu12 nvidia-cudnn-cu12` in the venv.
-- **Cuts you off mid-sentence** → lower `silence_threshold`; **never stops** → raise it.
-- **Slow cleanup** → switch `llm.model` to `qwen2.5:3b` (`ollama pull qwen2.5:3b`).
-- Background instance logs: `freewhisper.log` in the project root.
-
-## Project layout
-
-```
-freewhisper/
-  main.py         app orchestration: hotkeys, watchdog, tray, lifecycle, --check/--test-mic
-  overlay.py      tkinter floating pill + live waveform (poll-based, thread-safe)
-  recorder.py     16kHz mic capture with sample-rate fallback + RMS helpers
-  transcriber.py  faster-whisper wrapper (per-language models, CUDA DLL bootstrap)
-  cleaner.py      Ollama post-processing (fails open — raw text is never lost)
-  injector.py     clipboard-save → paste → clipboard-restore
-config.yaml       all user settings
-tests/            pytest smoke tests
-```
-
-## Dev
+## Development
 
 ```powershell
-.venv\Scripts\python -m pytest        # tests
-.venv\Scripts\python -m freewhisper --check     # environment doctor
+.venv\Scripts\python -m pytest                 # smoke tests (config, prompts, intent regexes)
+.venv\Scripts\python -m freewhisper --test-mic # record 3s, print level + transcript
 ```
 
-Built 2026 · Python 3.14 · tested on Windows 11, RTX 5070 Ti.
+## Tech stack
+
+Python · faster-whisper (CTranslate2, CUDA) · Ollama · sounddevice · tkinter + Win32 (ctypes) · keyboard / pyperclip / pystray · pytest
